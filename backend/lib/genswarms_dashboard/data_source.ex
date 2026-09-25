@@ -20,7 +20,8 @@ defmodule GenswarmsDashboard.DataSource do
   An optional top-level `warnings: [string]` reports unavailable host reads.
   Set `sessions_available: false` if the stored population read is incomplete:
   known/live rows remain visible, but `summary.sessions` is nil. Omission defaults
-  to true for legacy hosts.
+  to true for legacy hosts. Individual rows outside durable reply tracking may
+  set `reply_tracking_available: false` to keep their health unavailable.
   """
   @callback snapshot(swarm :: String.t()) ::
               %{sessions: [map()], extensions: %{optional(String.t()) => map()}}

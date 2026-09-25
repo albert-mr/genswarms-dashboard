@@ -173,6 +173,18 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
 
     push_snap(overview, healthy_empty)
     assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "0")
+
+    untracked =
+      Map.put(healthy_empty, "sessions", [
+        %{
+          "session_id" => "group",
+          "last_activity" => suppressed_at,
+          "reply_tracking_available" => false
+        }
+      ])
+
+    push_snap(overview, untracked)
+    assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "unavailable")
     push_snap(overview, Map.put(healthy_empty, "sessions_available", false))
     assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "unavailable")
   end

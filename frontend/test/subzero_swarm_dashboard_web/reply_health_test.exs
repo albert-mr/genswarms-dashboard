@@ -9,6 +9,23 @@ defmodule SubzeroSwarmDashboardWeb.ReplyHealthTest do
   @iso "2026-06-03T15:22:01Z"
   @in_s @iso |> DateTime.from_iso8601() |> elem(1) |> DateTime.to_unix()
 
+  test "sessions explicitly outside reply tracking remain unavailable" do
+    session = %{
+      "session_id" => "group",
+      "last_activity" => @iso,
+      "reply_tracking_available" => false
+    }
+
+    assert ReplyHealth.status(session, %{}, %{}, @in_s + 300) == :unavailable
+
+    assert ReplyHealth.status(
+             Map.delete(session, "reply_tracking_available"),
+             %{},
+             %{},
+             @in_s + 300
+           ) == :unanswered
+  end
+
   test "failed delivery never answers an inbound message" do
     session = %{"session_id" => "tg:1:0", "last_activity" => @iso}
 

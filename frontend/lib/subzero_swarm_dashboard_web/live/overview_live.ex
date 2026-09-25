@@ -436,8 +436,15 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
         <.link navigate={~p"/sessions"} class="contents">
           <.metric
             label="unanswered"
-            value={if @reply_health_available?, do: @attention.unanswered, else: "unavailable"}
-            tone={if @reply_health_available?, do: alarm_tone(@attention.unanswered, "warn")}
+            value={
+              if @reply_health_available? and @attention.unavailable == 0,
+                do: @attention.unanswered,
+                else: "unavailable"
+            }
+            tone={
+              if @reply_health_available? and @attention.unavailable == 0,
+                do: alarm_tone(@attention.unanswered, "warn")
+            }
             title="live conversations whose last user message got NO reply — a stall, not policy. Click for the attention-sorted list."
           />
         </.link>

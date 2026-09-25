@@ -29,6 +29,9 @@ defmodule SubzeroSwarmDashboardWeb.ReplyHealth do
   stall). A real delivery still wins: answered is checked first. Unanswered
   older than 48h decays to `:stale`.
   """
+  def status(%{"reply_tracking_available" => false}, _replies, _suppressed, _now),
+    do: :unavailable
+
   def status(session, replies, suppressed, now) do
     last_in = to_unix(session["last_activity"])
     reply = (replies || %{})[session["session_id"]] || %{}
