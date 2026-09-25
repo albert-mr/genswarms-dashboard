@@ -133,6 +133,18 @@ defmodule GenswarmsDashboard.AggregateTest do
     assert Aggregate.assemble(status(), [], Map.put(data(), :warnings, %{}), now()).warnings == []
   end
 
+  test "incomplete stored sessions preserve known rows but have no complete total" do
+    data = data(%{sessions: [%{session_id: "known"}], sessions_available: false})
+    agg = Aggregate.assemble(status(), [], data, now())
+    assert agg.sessions_available == false
+    assert agg.summary.sessions == nil
+    assert [%{session_id: "known"}] = agg.sessions
+    assert Aggregate.assemble(status(), [], %{data | sessions: []}, now()).summary.sessions == nil
+
+    assert Aggregate.assemble(status(), [], Map.delete(data, :sessions_available), now()).summary.sessions ==
+             1
+  end
+
   test "defaults the dashboard title from the swarm name" do
     agg =
       Aggregate.assemble(
@@ -261,6 +273,7 @@ defmodule GenswarmsDashboard.AggregateTest do
 
       on_exit(fn ->
         Application.delete_env(:genswarms_dashboard, :config)
+        Application.delete_env(:genswarms_dashboard, :stub_sessions_available)
         Application.delete_env(:genswarms_dashboard, :stub_status)
         Application.delete_env(:genswarms_dashboard, :stub_topology)
       end)
@@ -279,6 +292,14 @@ defmodule GenswarmsDashboard.AggregateTest do
       assert agg.summary.pool == %{leased: 2, size: 8}
       assert %{from: "ingress", to: "agent_1"} in agg.edges
       assert agg.extensions["deliveries"].count == 1
+    end
+
+    test "host session availability crosses the live build boundary" do
+      Application.put_env(:genswarms_dashboard, :stub_sessions_available, false)
+      {:ok, agg} = Aggregate.build("fix")
+      assert agg.sessions_available == false
+      assert agg.summary.sessions == nil
+      assert length(agg.sessions) == 3
     end
 
     test "fabricate override is used when the DataSource implements it" do

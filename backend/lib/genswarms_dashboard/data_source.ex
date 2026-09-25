@@ -18,6 +18,9 @@ defmodule GenswarmsDashboard.DataSource do
   An empty successful read uses `items: []`; failed reads use `available: false`.
   Missing/unavailable evidence displays as unavailable, not answered/unanswered.
   An optional top-level `warnings: [string]` reports unavailable host reads.
+  Set `sessions_available: false` if the stored population read is incomplete:
+  known/live rows remain visible, but `summary.sessions` is nil. Omission defaults
+  to true for legacy hosts.
   """
   @callback snapshot(swarm :: String.t()) ::
               %{sessions: [map()], extensions: %{optional(String.t()) => map()}}

@@ -67,6 +67,7 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
       assign(assigns,
         inspect_lookup: inspect_lookup,
         sessions: sessions,
+        sessions_available: (assigns[:snapshot] || %{})["sessions_available"] != false,
         shown: shown,
         shown_rows: session_rows(shown, privacy?, inspect_lookup, statuses, now),
         hidden_count: hidden_count,
@@ -113,8 +114,8 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
             <.facet_chip
               :for={{key, label, title} <- facets()}
               key={key}
-              label={label}
-              title={title}
+              label={if key == "all" and not @sessions_available, do: "known", else: label}
+              title={if key == "all" and not @sessions_available, do: "known sessions", else: title}
               count={@chip_counts[key]}
               active={@filter == key}
             />
@@ -127,13 +128,23 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
           body_class={if(@sessions == [], do: "p-4", else: "overflow-x-auto")}
         >
           <:meta>
-            <span class="font-mono tnum">{length(@sessions)} total</span>
+            <span id="sessions-total" class="font-mono tnum">
+              <%= if @sessions_available do %>
+                {length(@sessions)} total
+              <% else %>
+                total unavailable · {length(@sessions)} known
+              <% end %>
+            </span>
             <span class="font-mono tnum text-[var(--signal)]">{@live_count} live</span>
           </:meta>
           <%= if @sessions == [] do %>
             <.empty_state
               icon="hero-magnifying-glass"
-              msg={"No sessions#{if(@q != "", do: " match \"#{@q}\"", else: "")}."}
+              msg={
+                if not @sessions_available,
+                  do: "Stored sessions unavailable.",
+                  else: "No sessions#{if(@q != "", do: " match \"#{@q}\"", else: "")}."
+              }
             />
           <% else %>
             <table class="table">

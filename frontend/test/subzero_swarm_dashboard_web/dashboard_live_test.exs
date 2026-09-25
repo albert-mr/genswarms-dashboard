@@ -130,7 +130,7 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
          agents: [],
          kpis: %{},
          issues: [],
-         story: []
+         story: [%{kind: "reply_suppressed", cid: "suppressed", ts: System.os_time(:second)}]
        }}
     )
 
@@ -146,6 +146,83 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "unavailable")
     assert has_element?(sessions, "tr[phx-value-session_id='tg:1:0']", "unavailable")
     refute has_element?(sessions, "tr .badge-success", "answered")
+
+    suppressed_at = DateTime.utc_now() |> DateTime.add(-300) |> DateTime.to_iso8601()
+
+    for rows <- [
+          [],
+          [%{"session_id" => "suppressed", "last_activity" => suppressed_at}],
+          [%{"session_id" => "idle", "last_activity" => nil}],
+          [
+            %{
+              "session_id" => "pending",
+              "last_activity" => DateTime.to_iso8601(DateTime.utc_now())
+            }
+          ]
+        ],
+        source <- [nil, %{"available" => false, "items" => []}] do
+      partial = snap |> Map.put("sessions", rows) |> put_in(["extensions", "replies"], source)
+      push_snap(overview, partial)
+      assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "unavailable")
+    end
+
+    healthy_empty =
+      snap
+      |> Map.put("sessions", [])
+      |> put_in(["extensions", "replies"], %{"available" => true, "items" => []})
+
+    push_snap(overview, healthy_empty)
+    assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "0")
+    push_snap(overview, Map.put(healthy_empty, "sessions_available", false))
+    assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "unavailable")
+  end
+
+  test "incomplete session sources preserve known rows without claiming a total", %{conn: conn} do
+    {:ok, view, _} = live(conn, "/sessions")
+    partial = Map.put(@snap, "sessions_available", false)
+    push_snap(view, partial)
+    assert has_element?(view, "#sessions-total", "unavailable")
+    assert has_element?(view, "tr[phx-value-session_id='tg:1:0']")
+    push_snap(view, Map.put(partial, "sessions", []))
+    assert has_element?(view, "#sessions-total", "unavailable")
+    refute has_element?(view, "section", "No sessions.")
+    push_snap(view, @snap)
+    assert has_element?(view, "#sessions-total", "1 total")
+  end
+
+  test "overview consumers show unavailable for absent or failed sources, and zero for a known empty source",
+       %{conn: conn} do
+    {:ok, view, _} = live(conn, "/")
+
+    for source <- [nil, %{"available" => false, "count" => nil, "items" => []}] do
+      push_snap(view, put_in(@snap, ["extensions", "consumers"], source))
+      assert has_element?(view, "#swarm-panel div[title='Stored consumers']", "unavailable")
+    end
+
+    push_snap(
+      view,
+      put_in(@snap, ["extensions", "consumers"], %{
+        "available" => true,
+        "count" => 0,
+        "items" => []
+      })
+    )
+
+    assert has_element?(view, "#swarm-panel div[title='Stored consumers']", "0")
+  end
+
+  test "overview renders string warnings alongside legacy structured warnings", %{conn: conn} do
+    {:ok, view, _} = live(conn, "/")
+
+    snap =
+      Map.put(@snap, "warnings", [
+        "Stored sessions unavailable",
+        %{"code" => "legacy", "object" => "source", "reason" => "legacy diagnostic"}
+      ])
+
+    push_snap(view, snap)
+    assert has_element?(view, "li", "Stored sessions unavailable")
+    assert has_element?(view, "li", "legacy diagnostic")
   end
 
   test "layout renders the host-provided dashboard title from the snapshot", %{conn: conn} do

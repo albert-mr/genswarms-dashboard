@@ -114,7 +114,7 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
             <.metric label="data source" value={@snapshot["data_source"]} />
             <.metric label="agents" value={get_in(@snapshot, ["summary", "agents"])} />
             <.metric label="objects" value={get_in(@snapshot, ["summary", "objects"])} />
-            <.metric label="consumers" value={consumers_count(@snapshot)} />
+            <.metric label="consumers" title="Stored consumers" value={consumers_count(@snapshot)} />
           </div>
         </.panel>
 
@@ -134,8 +134,8 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
         >
           <ul class="text-sm space-y-1">
             <li :for={w <- @warnings} class="font-mono">
-              <span class="badge badge-warning badge-sm">{w["code"]}</span>
-              {w["object"]} — {w["reason"]}
+              <span :if={w["code"]} class="badge badge-warning badge-sm">{w["code"]}</span>
+              <span :if={w["object"]}>{w["object"]} — </span>{w["reason"]}
             </li>
           </ul>
         </.panel>
@@ -410,6 +410,11 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
     assigns =
       assigns
       |> assign(:k, assigns.story[:kpis] || %{})
+      |> assign(
+        :reply_health_available?,
+        ReplyHealth.available?(assigns.snapshot) and
+          (assigns.snapshot || %{})["sessions_available"] != false
+      )
       |> assign(:today, metrics_today(assigns.snapshot))
       |> assign(:inbox_queue, get_in(assigns.snapshot || %{}, ["extensions", "inbox_queue"]))
       |> assign(
@@ -431,8 +436,8 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
         <.link navigate={~p"/sessions"} class="contents">
           <.metric
             label="unanswered"
-            value={if @attention.unavailable > 0, do: "unavailable", else: @attention.unanswered}
-            tone={alarm_tone(@attention.unanswered, "warn")}
+            value={if @reply_health_available?, do: @attention.unanswered, else: "unavailable"}
+            tone={if @reply_health_available?, do: alarm_tone(@attention.unanswered, "warn")}
             title="live conversations whose last user message got NO reply — a stall, not policy. Click for the attention-sorted list."
           />
         </.link>
@@ -758,14 +763,26 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
   end
 
   # ── helpers ──────────────────────────────────────────────────────────────────
-  defp consumers_count(snap), do: get_in(snap, ["extensions", "consumers", "count"]) || 0
+  defp consumers_count(snap) do
+    case get_in(snap, ["extensions", "consumers"]) do
+      %{"available" => false} -> "unavailable"
+      %{"count" => count} when is_number(count) -> count
+      _ -> "unavailable"
+    end
+  end
 
   defp warnings(nil, _privacy?), do: []
-  defp warnings(snap, false), do: snap["warnings"] || []
+
+  defp warnings(snap, false) do
+    Enum.map(snap["warnings"] || [], fn
+      text when is_binary(text) -> %{"reason" => text}
+      warning -> warning
+    end)
+  end
 
   defp warnings(snap, true) do
     snap
-    |> Map.get("warnings", [])
+    |> warnings(false)
     |> PrivacyRedactor.mask_identity()
     |> Enum.map(fn
       %{} = w ->

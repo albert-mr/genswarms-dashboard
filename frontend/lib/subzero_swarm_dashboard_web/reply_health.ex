@@ -68,6 +68,14 @@ defmodule SubzeroSwarmDashboardWeb.ReplyHealth do
 
   defp delivery_at(_), do: nil
 
+  @doc "Whether the host supplied a successful read of the reply evidence source."
+  def available?(snap) do
+    match?(
+      %{"available" => true, "items" => items} when is_list(items),
+      get_in(snap || %{}, ["extensions", "replies"])
+    )
+  end
+
   @doc "Latest successful actual replies by session, or nil when evidence is unavailable."
   def replies(nil), do: nil
 

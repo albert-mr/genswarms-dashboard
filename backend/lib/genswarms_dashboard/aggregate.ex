@@ -24,6 +24,7 @@ defmodule GenswarmsDashboard.Aggregate do
 
         data = %{
           sessions: snap.sessions,
+          sessions_available: Map.get(snap, :sessions_available, true),
           extensions: snap.extensions,
           warnings: Map.get(snap, :warnings, []),
           pool: ds.pool_snapshot(swarm_name),
@@ -81,6 +82,7 @@ defmodule GenswarmsDashboard.Aggregate do
     fabricate = Map.get(data, :fabricate) || (&default_session/1)
     agent_names = MapSet.new(status.agents, &to_string(&1.name))
     sessions = build_sessions(rows, pool, fabricate, agent_names)
+    sessions_available = Map.get(data, :sessions_available, true) != false
 
     host_warnings =
       case Map.get(data, :warnings) do
@@ -105,12 +107,13 @@ defmodule GenswarmsDashboard.Aggregate do
       summary: %{
         agents: length(status.agents),
         objects: length(status.objects),
-        sessions: length(sessions),
+        sessions: if(sessions_available, do: length(sessions)),
         pool: %{leased: Map.get(pool, :leased, 0), size: Map.get(pool, :size, 0)}
       },
       nodes: classify_nodes(status),
       edges: normalize_edges(topology),
       sessions: sessions,
+      sessions_available: sessions_available,
       extensions: extensions,
       warnings: host_warnings ++ warnings
     }

@@ -17,6 +17,7 @@ defmodule GenswarmsDashboard.FixtureDataSource do
         # sparse row: only session_id — the aggregate must fill every default
         %{session_id: "fix:2"}
       ],
+      sessions_available: Application.get_env(:genswarms_dashboard, :stub_sessions_available, true),
       warnings: ["Fixture source unavailable", 42],
       extensions: %{
         "consumers" => %{count: 2, items: [%{session_id: "fix:1"}]},
