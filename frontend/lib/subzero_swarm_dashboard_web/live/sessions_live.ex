@@ -38,11 +38,11 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
     inspect_lookup = assigns[:inspect_lookup] || DashHooks.inspect_lookup(assigns[:snapshot])
     sessions = filter(assigns[:snapshot], assigns.q)
     now = System.os_time(:second)
-    deliveries = ReplyHealth.deliveries(assigns[:snapshot])
+    replies = ReplyHealth.replies(assigns[:snapshot])
     suppressed = ReplyHealth.suppressed_by_cid(assigns.story)
 
     statuses =
-      Map.new(sessions, &{&1["session_id"], ReplyHealth.status(&1, deliveries, suppressed, now)})
+      Map.new(sessions, &{&1["session_id"], ReplyHealth.status(&1, replies, suppressed, now)})
 
     sessions = sort_by_attention(sessions, statuses)
 
@@ -348,11 +348,12 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
   defp facets do
     [
       {"all", "all", "every session"},
-      {"live", "live", "currently leased to an agent slot"},
+      {"live", "live", "leased to an agent present in the engine"},
       {"unanswered", "⚠ unanswered", "received a message but got no reply (fresh — under 48h)"},
       {"suppressed", "🤫 suppressed",
        "replies withheld by the sender's spam window — policy, not a failure"},
       {"stale", "stale", "unanswered for over 48h — aged out of the alarm"},
+      {"unavailable", "unavailable", "reply evidence unavailable"},
       {"idle", "idle", "no activity recorded"}
     ]
   end
@@ -376,7 +377,15 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
     do: Enum.filter(sessions, &(&1["state"] == "active"))
 
   defp apply_chip_filter(sessions, statuses, f)
-       when f in ["unanswered", "suppressed", "stale", "idle", "answered", "pending"],
+       when f in [
+              "unanswered",
+              "suppressed",
+              "stale",
+              "idle",
+              "answered",
+              "pending",
+              "unavailable"
+            ],
        do:
          Enum.filter(
            sessions,
@@ -467,17 +476,25 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
   defp audience_value(v), do: inspect(v)
 
   @doc "Delegates to ReplyHealth (the shared classifier). Public for unit tests."
-  def reply_status(session, deliveries, now),
-    do: ReplyHealth.status(session, deliveries, %{}, now)
+  def reply_status(session, replies, now),
+    do: ReplyHealth.status(session, replies, %{}, now)
 
-  def reply_status(session, deliveries, suppressed, now),
-    do: ReplyHealth.status(session, deliveries, suppressed, now)
+  def reply_status(session, replies, suppressed, now),
+    do: ReplyHealth.status(session, replies, suppressed, now)
 
   # Attention-first: the row that hurts most goes on top. Unanswered sort oldest
   # first (longest-waiting user at the very top); every other bucket sorts most
   # recent first. Stale (aged-out unanswered) sits below answered — visible
   # history, not an alarm. Public for unit tests.
-  @attention_rank %{unanswered: 0, pending: 1, suppressed: 2, answered: 3, stale: 4, idle: 5}
+  @attention_rank %{
+    unanswered: 0,
+    pending: 1,
+    suppressed: 2,
+    answered: 3,
+    stale: 4,
+    unavailable: 5,
+    idle: 6
+  }
 
   def sort_by_attention(sessions, statuses) do
     Enum.sort_by(sessions, fn s ->
@@ -535,6 +552,13 @@ defmodule SubzeroSwarmDashboardWeb.SessionsLive do
       title="unanswered for over 48h — aged out of the alarm"
     >
       no reply{if @waiting, do: " · #{@waiting}"}
+    </span>
+    <span
+      :if={@status == :unavailable}
+      class="badge badge-ghost badge-xs"
+      title="successful reply evidence unavailable"
+    >
+      unavailable
     </span>
     <span :if={@status == :idle} class="opacity-40 text-xs">—</span>
     """

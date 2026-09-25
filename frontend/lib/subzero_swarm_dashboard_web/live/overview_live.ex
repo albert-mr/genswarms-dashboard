@@ -273,7 +273,11 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
 
   defp serving_chip(assigns) do
     assigns =
-      assign(assigns, :inspect_target, inspect_value(assigns.inspect_lookup, true, assigns.row.cid))
+      assign(
+        assigns,
+        :inspect_target,
+        inspect_value(assigns.inspect_lookup, true, assigns.row.cid)
+      )
 
     ~H"""
     <%= if @privacy do %>
@@ -427,7 +431,7 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
         <.link navigate={~p"/sessions"} class="contents">
           <.metric
             label="unanswered"
-            value={@attention.unanswered}
+            value={if @attention.unavailable > 0, do: "unavailable", else: @attention.unanswered}
             tone={alarm_tone(@attention.unanswered, "warn")}
             title="live conversations whose last user message got NO reply — a stall, not policy. Click for the attention-sorted list."
           />
@@ -477,9 +481,9 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
         <.metric
           :if={@inbox_queue}
           label="queue"
-          value={@inbox_queue["depth"]}
-          sub={queue_sub(@inbox_queue)}
-          tone={alarm_tone(@inbox_queue["depth"], "warn")}
+          value={if queue_available?(@inbox_queue), do: @inbox_queue["depth"], else: "unavailable"}
+          sub={if queue_available?(@inbox_queue), do: queue_sub(@inbox_queue)}
+          tone={if queue_available?(@inbox_queue), do: alarm_tone(@inbox_queue["depth"], "warn")}
           title="Messages waiting for a free agent slot — queued, never dropped; drained oldest-first every 20s."
         />
         <.metric
@@ -510,6 +514,8 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
 
   # "2 blocked · 1 failed" under the browser rate — blocked (policy) and broken
   # (render) are different problems with different owners; nil hides the line.
+  defp queue_available?(queue), do: queue["available"] != false and is_number(queue["depth"])
+
   defp queue_sub(%{"oldest_seconds" => seconds}) when is_number(seconds),
     do: "oldest #{div(trunc(seconds), 60)}m"
 

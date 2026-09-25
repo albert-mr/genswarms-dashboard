@@ -10,7 +10,7 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
     snap = %{"swarm" => "wingston", "summary" => %{"agents" => 0}}
     stub(SwarmClientMock, :dashboard, fn "wingston" -> {:ok, snap} end)
 
-    Phoenix.PubSub.subscribe(SubzeroSwarmDashboard.PubSub, SwarmFeed.topic())
+    SwarmFeed.subscribe()
     start_supervised!(SubzeroSwarmDashboard.SwarmFeed)
 
     assert_receive {:snapshot, ^snap}, 2_000
@@ -20,7 +20,7 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
     snap = %{"swarm" => "wingston", "summary" => %{"agents" => 2}}
     stub(SwarmClientMock, :dashboard, fn "wingston" -> {:ok, snap} end)
 
-    Phoenix.PubSub.subscribe(SubzeroSwarmDashboard.PubSub, SwarmFeed.topic())
+    SwarmFeed.subscribe()
     start_supervised!(SubzeroSwarmDashboard.SwarmFeed)
     assert_receive {:snapshot, ^snap}, 2_000
 
@@ -34,10 +34,99 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
   test "broadcasts :disconnected when the swarm is unreachable" do
     stub(SwarmClientMock, :dashboard, fn _ -> {:error, :econnrefused} end)
 
-    Phoenix.PubSub.subscribe(SubzeroSwarmDashboard.PubSub, SwarmFeed.topic())
+    SwarmFeed.subscribe()
     start_supervised!(SubzeroSwarmDashboard.SwarmFeed)
 
     assert_receive {:disconnected, :econnrefused}, 2_000
+  end
+
+  test "idle feed skips snapshots, resumes for viewers, and stops when the last viewer exits" do
+    test = self()
+
+    stub(SwarmClientMock, :dashboard, fn _ ->
+      send(test, :dashboard_read)
+      {:ok, %{"summary" => %{"agents" => 0}}}
+    end)
+
+    Application.put_env(:subzero_swarm_dashboard, :poll_interval_ms, 20)
+    on_exit(fn -> Application.delete_env(:subzero_swarm_dashboard, :poll_interval_ms) end)
+    feed = start_supervised!(SwarmFeed)
+    # Internal subscribers (EventsFeed, silent-feed guard) do not create demand.
+    Phoenix.PubSub.subscribe(SubzeroSwarmDashboard.PubSub, SwarmFeed.topic())
+    refute_receive :dashboard_read, 100
+
+    viewer =
+      start_supervised!(
+        {Task,
+         fn ->
+           SwarmFeed.subscribe()
+
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
+
+    assert_receive :dashboard_read
+    assert_receive {:snapshot, _}
+    monitor = Process.monitor(viewer)
+    send(viewer, :stop)
+    assert_receive {:DOWN, ^monitor, :process, ^viewer, :normal}
+    # Drain any poll already in flight before the viewer exited.
+    _ = :sys.get_state(feed)
+
+    receive do
+      :dashboard_read -> :ok
+    after
+      0 -> :ok
+    end
+
+    refute_receive :dashboard_read, 100
+
+    SwarmFeed.subscribe()
+    assert_receive :dashboard_read
+  end
+
+  test "repeat subscriptions do not multiply polls and demand survives a feed restart" do
+    test = self()
+
+    stub(SwarmClientMock, :dashboard, fn _ ->
+      send(test, :dashboard_read)
+      {:ok, %{"summary" => %{"agents" => 0}}}
+    end)
+
+    Application.put_env(:subzero_swarm_dashboard, :poll_interval_ms, 1_000)
+    on_exit(fn -> Application.delete_env(:subzero_swarm_dashboard, :poll_interval_ms) end)
+    start_supervised!(SwarmFeed)
+    SwarmFeed.subscribe()
+    assert_receive :dashboard_read
+    SwarmFeed.subscribe()
+    SwarmFeed.subscribe()
+    refute_receive :dashboard_read, 100
+    stop_supervised(SwarmFeed)
+    start_supervised!(SwarmFeed)
+    assert_receive :dashboard_read
+    refute_receive :dashboard_read, 100
+  end
+
+  test "event collection continues without snapshot viewers" do
+    test = self()
+
+    stub(SwarmClientMock, :dashboard, fn _ ->
+      send(test, :dashboard_read)
+      {:ok, %{}}
+    end)
+
+    stub(SwarmClientMock, :events_feed, fn _, _, _ ->
+      send(test, :events_read)
+      {:ok, %{"events" => [], "seq" => 0, "source" => "feed"}}
+    end)
+
+    start_supervised!(SwarmFeed)
+    start_supervised!(SubzeroSwarmDashboard.EventsFeed)
+    assert_receive :events_read
+    assert_receive :events_read, 1_000
+    refute_received :dashboard_read
   end
 
   describe "warn_silent?/5 (silent-empty guard)" do

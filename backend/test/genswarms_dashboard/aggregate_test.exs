@@ -102,6 +102,37 @@ defmodule GenswarmsDashboard.AggregateTest do
     assert agg.extensions == extensions
   end
 
+  test "a stale lease stays visible but is not active and emits a warning" do
+    pool = %{
+      assigned: %{"missing" => :agent_missing, "healthy" => "agent_1"},
+      last_seen: %{},
+      leased: 2,
+      size: 8
+    }
+
+    agg = Aggregate.assemble(status(), [], data(%{pool: pool}), now())
+    stale = Enum.find(agg.sessions, &(&1.session_id == "missing"))
+    healthy = Enum.find(agg.sessions, &(&1.session_id == "healthy"))
+    assert stale.state == "idle"
+    assert stale.agent == "agent_missing"
+    assert healthy.state == "active"
+    assert agg.summary.pool.leased == 2
+    assert Enum.any?(agg.warnings, &String.contains?(&1, "agent_missing"))
+
+    with_host =
+      Aggregate.assemble(
+        status(),
+        [],
+        Map.put(data(%{pool: pool}), :warnings, ["Reply evidence unavailable", nil, %{}]),
+        now()
+      )
+
+    assert "Reply evidence unavailable" in with_host.warnings
+    assert Enum.all?(with_host.warnings, &is_binary/1)
+    assert length(with_host.warnings) == 2
+    assert Aggregate.assemble(status(), [], Map.put(data(), :warnings, %{}), now()).warnings == []
+  end
+
   test "defaults the dashboard title from the swarm name" do
     agg =
       Aggregate.assemble(
@@ -115,11 +146,11 @@ defmodule GenswarmsDashboard.AggregateTest do
   end
 
   test "a pool-only cid appears as an active session via the DEFAULT fabricated row" do
-    pool = %{assigned: %{"tg:7:0" => :agent_3}, last_seen: %{}, leased: 1, size: 2048}
+    pool = %{assigned: %{"tg:7:0" => :agent_1}, last_seen: %{}, leased: 1, size: 2048}
     agg = Aggregate.assemble(status(), [], data(%{pool: pool}), now())
 
     s = Enum.find(agg.sessions, &(&1.session_id == "tg:7:0"))
-    assert s.state == "active" and s.agent == "agent_3"
+    assert s.state == "active" and s.agent == "agent_1"
     # generic defaults — NEVER nil for transport/transport_ref/metadata
     assert s.transport == "unknown"
     assert s.transport_ref == %{}
@@ -129,7 +160,7 @@ defmodule GenswarmsDashboard.AggregateTest do
   end
 
   test "a pool-only cid uses the host's fabricate override when provided" do
-    pool = %{assigned: %{"tg:7:0" => :agent_3}, last_seen: %{}, leased: 1, size: 2048}
+    pool = %{assigned: %{"tg:7:0" => :agent_1}, last_seen: %{}, leased: 1, size: 2048}
 
     fabricate = fn cid ->
       %{
@@ -238,6 +269,7 @@ defmodule GenswarmsDashboard.AggregateTest do
     test "assembles from DataSource.snapshot + pool_snapshot with the configured label" do
       {:ok, agg} = Aggregate.build("fix")
       assert agg.data_source == "fixture_sql"
+      assert agg.warnings == ["Fixture source unavailable"]
       # fix:1 + fix:2 durable, fix:pool fabricated (default row — fixture has no override)
       assert agg.summary.sessions == 3
       pool_row = Enum.find(agg.sessions, &(&1.session_id == "fix:pool"))

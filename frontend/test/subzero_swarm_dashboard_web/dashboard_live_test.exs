@@ -114,6 +114,40 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     assert html =~ "oldest 4m"
   end
 
+  test "overview and sessions show unavailable evidence instead of healthy zeroes", %{conn: conn} do
+    {:ok, overview, _} = live(conn, "/")
+    {:ok, sessions, _} = live(conn, "/sessions")
+
+    Phoenix.PubSub.broadcast(
+      SubzeroSwarmDashboard.PubSub,
+      "events",
+      {:story,
+       %{
+         feed_status: :ok,
+         feed_age_s: 0,
+         baseline_at: DateTime.utc_now(),
+         in_flight: [],
+         agents: [],
+         kpis: %{},
+         issues: [],
+         story: []
+       }}
+    )
+
+    snap =
+      put_in(@snap, ["extensions", "inbox_queue"], %{
+        "available" => false,
+        "depth" => nil,
+        "oldest_seconds" => nil
+      })
+
+    push_snap(overview, snap)
+    assert has_element?(overview, "#kpi-panel div[title^='Messages waiting']", "unavailable")
+    assert has_element?(overview, "#kpi-panel div[title^='live conversations']", "unavailable")
+    assert has_element?(sessions, "tr[phx-value-session_id='tg:1:0']", "unavailable")
+    refute has_element?(sessions, "tr .badge-success", "answered")
+  end
+
   test "layout renders the host-provided dashboard title from the snapshot", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
 
@@ -199,7 +233,9 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     assert html =~ "Alberto C"
   end
 
-  test "sessions show a reply-health badge from the sender's deliveries extension", %{conn: conn} do
+  test "sessions show a reply-health badge from the host's successful replies extension", %{
+    conn: conn
+  } do
     # reply-health classifies against the REAL clock, so the inbound must be
     # recent: fresh enough to be :unanswered (not :stale), old enough to be
     # past the 120s pending grace.
@@ -212,7 +248,8 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
 
     # answered: a delivery AFTER the last inbound
     answered =
-      put_in(snap, ["extensions", "deliveries"], %{
+      put_in(snap, ["extensions", "replies"], %{
+        "available" => true,
         "items" => [%{"session_id" => "tg:1:0", "at" => in_unix + 10, "status" => "sent"}]
       })
 
@@ -221,7 +258,7 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
 
     # unanswered: recent inbound, no delivery -> alarm badge with the waiting
     # time + counted in the clickable facet chip
-    unanswered = put_in(snap, ["extensions", "deliveries"], %{"items" => []})
+    unanswered = put_in(snap, ["extensions", "replies"], %{"available" => true, "items" => []})
     Phoenix.PubSub.broadcast(SubzeroSwarmDashboard.PubSub, "feed", {:snapshot, unanswered})
     html = render(view)
     assert html =~ "no reply · 1h"
@@ -232,7 +269,7 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     {:ok, view, _} = live(conn, "/sessions")
 
     # @snap's last_activity is 2026-06-03 — long past the 48h decay window
-    stale = put_in(@snap, ["extensions", "deliveries"], %{"items" => []})
+    stale = put_in(@snap, ["extensions", "replies"], %{"available" => true, "items" => []})
     Phoenix.PubSub.broadcast(SubzeroSwarmDashboard.PubSub, "feed", {:snapshot, stale})
     html = render(view)
 
@@ -261,7 +298,7 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     snap =
       @snap
       |> put_in(["sessions"], sessions)
-      |> put_in(["extensions", "deliveries"], %{"items" => []})
+      |> put_in(["extensions", "replies"], %{"available" => true, "items" => []})
 
     {:ok, view, _} = live(conn, "/sessions")
     Phoenix.PubSub.broadcast(SubzeroSwarmDashboard.PubSub, "feed", {:snapshot, snap})
