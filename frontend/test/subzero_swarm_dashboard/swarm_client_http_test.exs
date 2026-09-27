@@ -31,6 +31,17 @@ defmodule SubzeroSwarmDashboard.SwarmClient.HttpTest do
     assert {:error, {:http, 404}} = Http.dashboard("x")
   end
 
+  test "scheduled polls return a transient failure without retrying inside the call" do
+    Req.Test.stub(SubzeroSwarmDashboard.HttpStub, fn conn ->
+      attempts = Process.get(:swarm_attempts, 0)
+      Process.put(:swarm_attempts, attempts + 1)
+      Plug.Conn.send_resp(conn, if(attempts == 0, do: 503, else: 200), "{}")
+    end)
+
+    assert {:error, {:http, 503}} = Http.dashboard("wingston")
+    assert Process.get(:swarm_attempts) == 1
+  end
+
   test "session_history hits the history route" do
     Req.Test.stub(SubzeroSwarmDashboard.HttpStub, fn conn ->
       assert conn.request_path == "/api/swarms/wingston/sessions/tg:1:0/history"

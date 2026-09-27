@@ -58,4 +58,23 @@ defmodule SubzeroSwarmDashboard.RouterClient.HttpTest do
 
     assert {:unavailable, :not_found} = Http.usage(%{})
   end
+
+  test "a transient failure is returned without blocking for an internal retry" do
+    configure()
+
+    Req.Test.stub(SubzeroSwarmDashboard.HttpStub, fn conn ->
+      attempts = Process.get(:router_attempts, 0)
+      Process.put(:router_attempts, attempts + 1)
+      Plug.Conn.send_resp(conn, if(attempts == 0, do: 503, else: 200), "{}")
+    end)
+
+    assert {:unavailable, {:http, 503}} = Http.usage(%{})
+    assert Process.get(:router_attempts) == 1
+  end
+
+  test "a successful status with a non-object body is unavailable" do
+    configure()
+    Req.Test.stub(SubzeroSwarmDashboard.HttpStub, &Req.Test.json(&1, ["unexpected"]))
+    assert {:unavailable, :invalid_response} = Http.usage(%{})
+  end
 end
