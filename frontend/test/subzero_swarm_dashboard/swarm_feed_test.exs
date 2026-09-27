@@ -13,7 +13,8 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
     SwarmFeed.subscribe()
     start_supervised!(SubzeroSwarmDashboard.SwarmFeed)
 
-    assert_receive {:snapshot, ^snap}, 2_000
+    assert_receive {:snapshot_ready, revision}, 2_000
+    assert is_integer(revision)
   end
 
   test "current/0 serves the cached last snapshot (mount seed — no empty-state flash)" do
@@ -22,7 +23,8 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
 
     SwarmFeed.subscribe()
     start_supervised!(SubzeroSwarmDashboard.SwarmFeed)
-    assert_receive {:snapshot, ^snap}, 2_000
+    assert_receive {:snapshot_ready, revision}, 2_000
+    assert is_integer(revision)
 
     assert SwarmFeed.current() == snap
   end
@@ -37,7 +39,7 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
     SwarmFeed.subscribe()
     start_supervised!(SubzeroSwarmDashboard.SwarmFeed)
 
-    assert_receive {:disconnected, :econnrefused}, 2_000
+    assert_receive {:disconnected, _, :econnrefused}, 2_000
   end
 
   test "idle feed skips snapshots, resumes for viewers, and stops when the last viewer exits" do
@@ -68,7 +70,7 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
       )
 
     assert_receive :dashboard_read
-    assert_receive {:snapshot, _}
+    assert_receive {:snapshot_ready, _}
     monitor = Process.monitor(viewer)
     send(viewer, :stop)
     assert_receive {:DOWN, ^monitor, :process, ^viewer, :normal}
@@ -127,6 +129,45 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
     assert_receive :events_read
     assert_receive :events_read, 1_000
     refute_received :dashboard_read
+  end
+
+  test "publishes only revisions and projects cached data before copying it to a reader" do
+    snap = %{"sessions" => Enum.map(1..20_000, &%{"session_id" => "test:#{&1}:0"})}
+    stub(SwarmClientMock, :dashboard, fn _ -> {:ok, snap} end)
+    SwarmFeed.subscribe()
+    start_supervised!(SwarmFeed)
+    assert_receive {:snapshot_ready, revision}, 2_000
+    assert byte_size(:erlang.term_to_binary({:snapshot_ready, revision})) < 100
+    assert SwarmFeed.current(fn cached -> length(cached["sessions"]) end) == 20_000
+    refute_received {:snapshot, _}
+  end
+
+  test "cached reads stay available while one poll is waiting and preserve failure status" do
+    parent = self()
+
+    stub(SwarmClientMock, :dashboard, fn _ ->
+      send(parent, {:poll_waiting, self()})
+
+      receive do
+        {:finish, result} -> result
+      end
+    end)
+
+    SwarmFeed.subscribe()
+    feed = start_supervised!(SwarmFeed)
+    assert_receive {:poll_waiting, task}, 2_000
+    assert SwarmFeed.current() == nil
+    snap = %{"summary" => %{"agents" => 0}, "sessions" => []}
+    send(task, {:finish, {:ok, snap}})
+    assert_receive {:snapshot_ready, revision}, 2_000
+    state = :sys.get_state(feed)
+    send(feed, {:timeout, state.timer, :poll})
+    assert_receive {:poll_waiting, next_task}, 2_000
+    assert SwarmFeed.current() == snap
+    send(next_task, {:finish, {:error, :timeout}})
+    assert_receive {:disconnected, failed_revision, :timeout}, 2_000
+    assert failed_revision > revision
+    assert {:disconnected, ^failed_revision, _} = SwarmFeed.view(%{})
   end
 
   describe "warn_silent?/5 (silent-empty guard)" do

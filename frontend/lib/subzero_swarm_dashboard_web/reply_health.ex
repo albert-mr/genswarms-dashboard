@@ -120,6 +120,8 @@ defmodule SubzeroSwarmDashboardWeb.ReplyHealth do
   Overview tile reads unanswered/suppressed (fresh alarms only; stale is
   reported separately so aged rows can never re-inflate the alarm).
   """
+  def counts(%{"_reply_health" => counts}, _story, _now), do: counts
+
   def counts(snap, story, now) do
     statuses = statuses(snap, story, now)
 

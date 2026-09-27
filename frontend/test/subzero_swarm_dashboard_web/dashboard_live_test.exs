@@ -368,7 +368,9 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     refute html =~ "⚠ unanswered"
   end
 
-  test "sessions: facet chips filter the table and the cap hides the long tail", %{conn: conn} do
+  test "sessions: facet chips filter the table and pagination reaches the long tail", %{
+    conn: conn
+  } do
     now = DateTime.utc_now()
 
     mk = fn n, state ->
@@ -391,16 +393,15 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
 
     {:ok, view, _} = live(conn, "/sessions")
     Phoenix.PubSub.broadcast(SubzeroSwarmDashboard.PubSub, "feed", {:snapshot, snap})
-    html = render(view)
-
-    # 61 rows > the 50-row cap: the tail hides behind one "show more" row
-    assert html =~ "show 11 more"
-    assert view |> element("tr td button", "show 11 more") |> render_click() =~ "show fewer"
+    render(view)
+    assert has_element?(view, "#sessions-pager", "1–50 of 61")
+    view |> element("#sessions-pager-next") |> render_click()
+    assert has_element?(view, "#sessions-pager", "51–61 of 61")
 
     # the "live" facet narrows to the one active session
     html = view |> element("button[phx-value-f='live']") |> render_click()
     assert html =~ "tg:9000:0"
-    refute html =~ "show 11 more"
+    assert has_element?(view, "#sessions-pager", "1–1 of 1")
     refute html =~ "tg:1:0\n"
   end
 
@@ -615,8 +616,10 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     assert html =~ "Custom report"
     assert html =~ "Ratio"
     assert html =~ "0.125"
-    assert html =~ "item-100"
-    refute html =~ "item-101"
+    assert has_element?(page, "#ext-pager-1", "1–50 of 101")
+    refute has_element?(page, "#ext-table-1 td", "item-101")
+    page |> element("#ext-pager-1-last") |> render_click()
+    assert has_element?(page, "#ext-table-1 td", "item-101")
   end
 
   test "extension tables sort numerically on header click and toggle direction", %{conn: conn} do
@@ -1055,7 +1058,7 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     stub(RouterClientMock, :usage, fn _ -> {:ok, payload} end)
 
     {:ok, view, _} = live(conn, "/usage")
-    html = render(view)
+    html = render_async(view)
 
     assert html =~ "Requests"
     # tokens formatted with thousands separators
@@ -1083,6 +1086,7 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     stub(RouterClientMock, :usage, fn _ -> {:ok, payload} end)
 
     {:ok, view, _} = live(conn, "/usage")
+    render_async(view)
     assert has_element?(view, "#usage-cached-input", "Cached input")
     assert has_element?(view, "#usage-cached-input", "cache telemetry unavailable")
     assert has_element?(view, "#usage-cached-input", "—")
@@ -1104,6 +1108,7 @@ defmodule SubzeroSwarmDashboardWeb.DashboardLiveTest do
     view |> element("button[phx-value-window='1h']") |> render_click()
     assert_receive {:usage_opts, %{since: since}}
     assert is_integer(since)
+    render_async(view)
   end
 
   test "logs page mounts", %{conn: conn} do

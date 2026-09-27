@@ -16,7 +16,7 @@ defmodule SubzeroSwarmDashboardWeb.UsageUnavailableTest do
 
     {:ok, view, _html} = live(conn, "/usage")
     send(view.pid, :load)
-    html = render(view)
+    html = render_async(view)
 
     assert html =~ "Router detail not configured"
     assert html =~ "ROUTER_USAGE_URL"
@@ -29,7 +29,7 @@ defmodule SubzeroSwarmDashboardWeb.UsageUnavailableTest do
 
     {:ok, view, _html} = live(conn, "/usage")
     send(view.pid, :load)
-    html = render(view)
+    html = render_async(view)
 
     assert html =~ "Router detail unavailable"
     refute html =~ "Router detail not configured"

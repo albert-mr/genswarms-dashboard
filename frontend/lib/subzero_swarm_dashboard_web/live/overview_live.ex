@@ -2,7 +2,6 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
   use SubzeroSwarmDashboardWeb, :live_view
 
   alias SubzeroSwarmDashboard.PrivacyRedactor
-  alias SubzeroSwarmDashboard.RouterClient
   alias SubzeroSwarmDashboard.RouterUsageCache
   alias SubzeroSwarmDashboardWeb.DashHooks
   alias SubzeroSwarmDashboardWeb.ReplyHealth
@@ -16,18 +15,29 @@ defmodule SubzeroSwarmDashboardWeb.OverviewLive do
     if connected?(socket), do: send(self(), :load_usage)
 
     # stale-while-revalidate off the same cache the Usage page fills
-    {:ok, assign(socket, usage: RouterUsageCache.get("all") || :loading, page_title: "Overview")}
+    {:ok,
+     assign(socket,
+       usage: RouterUsageCache.get("all", :totals) || :loading,
+       page_title: "Overview"
+     )}
   end
 
   @impl true
   def handle_info(:load_usage, socket) do
-    result = RouterClient.usage()
-    RouterUsageCache.put("all", result)
+    {:noreply,
+     start_async(socket, :router_usage, fn -> RouterUsageCache.fetch("all", %{}, :totals) end)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async(:router_usage, {:ok, result}, socket) do
     Process.send_after(self(), :load_usage, @usage_refresh_ms)
     {:noreply, assign(socket, usage: result)}
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_async(:router_usage, {:exit, _reason}, socket),
+    do: handle_async(:router_usage, {:ok, {:unavailable, :fetch_failed}}, socket)
 
   @impl true
   def render(assigns) do

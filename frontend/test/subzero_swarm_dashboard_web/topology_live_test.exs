@@ -213,7 +213,7 @@ defmodule SubzeroSwarmDashboardWeb.TopologyLiveTest do
     stub(SubzeroSwarmDashboard.SwarmClientMock, :dashboard, fn _ -> {:ok, snap} end)
     SubzeroSwarmDashboard.SwarmFeed.subscribe()
     start_supervised!(SubzeroSwarmDashboard.SwarmFeed)
-    assert_receive {:snapshot, ^snap}, 2_000
+    assert_receive {:snapshot_ready, _}, 2_000
 
     {:ok, view, _html} = live(conn, "/topology")
 
