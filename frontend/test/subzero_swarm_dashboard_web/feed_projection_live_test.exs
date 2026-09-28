@@ -6,6 +6,67 @@ defmodule SubzeroSwarmDashboardWeb.FeedProjectionLiveTest do
 
   setup :set_mox_global
 
+  test "extension loading and failures are distinct from an absent page, and recovery restores its menu",
+       %{conn: conn} do
+    parent = self()
+    Application.put_env(:subzero_swarm_dashboard, :poll_interval_ms, 60_000)
+    on_exit(fn -> Application.delete_env(:subzero_swarm_dashboard, :poll_interval_ms) end)
+
+    stub(SwarmClientMock, :dashboard, fn _ ->
+      send(parent, {:extension_poll, self()})
+
+      receive do
+        {:finish, result} -> result
+      end
+    end)
+
+    SwarmFeed.subscribe()
+    feed = start_supervised!(SwarmFeed)
+    assert_receive {:extension_poll, task}, 2_000
+    {:ok, view, _} = live(conn, "/extensions/report")
+    assert has_element?(view, "#extension-snapshot-state", "Loading dashboard data")
+    refute has_element?(view, "#extension-unavailable")
+
+    send(task, {:finish, {:error, :timeout}})
+    assert_receive {:disconnected, _, :timeout}, 2_000
+    assert {:disconnected, _, nil} = SwarmFeed.view(%{})
+    render(view)
+    assert has_element?(view, "#extension-snapshot-state", "Dashboard data unavailable")
+    refute has_element?(view, "#extension-unavailable")
+
+    page = %{
+      "id" => "report",
+      "label" => "Report",
+      "group" => "Engagement",
+      "sections" => [
+        %{"type" => "metrics", "items" => [%{"label" => "Contacts", "value" => 20_000}]}
+      ]
+    }
+
+    source = %{"sessions" => [], "extensions" => %{"dashboard_pages" => [page]}}
+    send(feed, {:timeout, :sys.get_state(feed).timer, :poll})
+    assert_receive {:extension_poll, task}, 2_000
+    send(task, {:finish, {:ok, source}})
+    assert_receive {:snapshot_ready, _}, 2_000
+    assert {:connected, _, _} = SwarmFeed.view(%{})
+    render(view)
+    assert has_element?(view, "aside a[href='/extensions/report']", "Report")
+    assert has_element?(view, "#extension-page-report", "20,000")
+    refute has_element?(view, "#extension-snapshot-state")
+
+    {:ok, absent, _} = live(conn, "/extensions/missing")
+    assert has_element?(absent, "#extension-unavailable", "Extension unavailable")
+
+    send(feed, {:timeout, :sys.get_state(feed).timer, :poll})
+    assert_receive {:extension_poll, task}, 2_000
+    send(task, {:finish, {:error, :timeout}})
+    assert_receive {:disconnected, _, :timeout}, 2_000
+    assert {:disconnected, _, _} = SwarmFeed.view(%{})
+    render(view)
+    assert has_element?(view, "#extension-page-report", "20,000")
+    assert has_element?(view, "#extension-snapshot-state", "Showing the last known data")
+  end
+
   test "shared-feed sessions remain bounded through search, last-page navigation and polling", %{
     conn: conn
   } do
