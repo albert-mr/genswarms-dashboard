@@ -49,6 +49,30 @@ defmodule SubzeroSwarmDashboard.RouterClient.HttpTest do
     assert {:ok, %{"totals" => %{"requests" => 3}}} = Http.usage(%{bucket: "day"})
   end
 
+  test "a cached usage page does not retain the discarded HTTP response buffer" do
+    configure()
+    model = String.duplicate("synthetic-model-", 8)
+    cache = SubzeroSwarmDashboard.RouterUsageCache
+    on_exit(fn -> Agent.update(cache, fn _ -> %{} end) end)
+
+    Req.Test.stub(SubzeroSwarmDashboard.HttpStub, fn conn ->
+      Req.Test.json(conn, %{
+        "totals" => %{"requests" => 1},
+        "recent" => [%{"requested_model" => model}],
+        "unused" => String.duplicate("x", 1_000_000)
+      })
+    end)
+
+    cache.put("all", Http.usage(%{}))
+    {:ok, page} = cache.get("all", {:page, %{}})
+    retained = hd(page["recent"])["requested_model"]
+
+    assert retained == model
+    assert page["totals"]["requests"] == 1
+    refute Map.has_key?(page, "unused")
+    assert :binary.referenced_byte_size(retained) == byte_size(retained)
+  end
+
   test "404 → {:unavailable, :not_found}" do
     configure()
 

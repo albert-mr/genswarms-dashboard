@@ -23,6 +23,25 @@ defmodule SubzeroSwarmDashboard.SwarmClient.HttpTest do
     assert {:ok, %{"swarm" => "wingston"}} = Http.dashboard("wingston")
   end
 
+  test "a projected session label does not retain the discarded HTTP response buffer" do
+    label = String.duplicate("synthetic name ", 10)
+
+    Req.Test.stub(SubzeroSwarmDashboard.HttpStub, fn conn ->
+      Req.Test.json(conn, %{
+        "sessions" => [%{"session_id" => "test:1:0", "user" => %{"name" => label}}],
+        "extensions" => %{"unused" => String.duplicate("x", 1_000_000)}
+      })
+    end)
+
+    {:ok, source} = Http.dashboard("wingston")
+    page = SubzeroSwarmDashboardWeb.SnapshotView.project(source, %{})
+    retained = hd(page["sessions"])["user"]["name"]
+
+    assert retained == label
+    refute Map.has_key?(page["extensions"], "unused")
+    assert :binary.referenced_byte_size(retained) == byte_size(retained)
+  end
+
   test "non-200 maps to {:error, {:http, status}}" do
     Req.Test.stub(SubzeroSwarmDashboard.HttpStub, fn conn ->
       Plug.Conn.send_resp(conn, 404, "nope")
