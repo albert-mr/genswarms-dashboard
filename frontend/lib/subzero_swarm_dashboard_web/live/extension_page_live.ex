@@ -138,22 +138,42 @@ defmodule SubzeroSwarmDashboardWeb.ExtensionPageLive do
       inspect_transcript={@inspect_transcript}
       inspect_activity={@inspect_activity}
     >
-      <%= if @page do %>
-        <ExtensionPages.page
-          page={@page}
-          sort={@ext_sort}
-          tab={@ext_tab}
-          pages={@ext_page}
-          row_targets={@row_targets}
-          detail_open={@ext_detail}
-        />
-      <% else %>
-        <div class="max-w-3xl">
-          <.empty_state
-            msg="Extension unavailable."
-            hint="This page appears when the connected swarm publishes it in dashboard_pages."
+      <div
+        :if={@conn_status == :disconnected && @page}
+        id="extension-snapshot-state"
+        role="status"
+        class="mb-5 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm"
+      >
+        Dashboard data unavailable — retrying. Showing the last known data.
+      </div>
+      <%= cond do %>
+        <% @page -> %>
+          <ExtensionPages.page
+            page={@page}
+            sort={@ext_sort}
+            tab={@ext_tab}
+            pages={@ext_page}
+            row_targets={@row_targets}
+            detail_open={@ext_detail}
           />
-        </div>
+        <% is_nil(@snapshot) -> %>
+          <div id="extension-snapshot-state" class="max-w-3xl" role="status">
+            <.empty_state
+              msg={
+                if @conn_status == :disconnected,
+                  do: "Dashboard data unavailable.",
+                  else: "Loading dashboard data…"
+              }
+              hint="Waiting for dashboard data; this page will update automatically. Live events can still update while dashboard data is unavailable."
+            />
+          </div>
+        <% true -> %>
+          <div id="extension-unavailable" class="max-w-3xl">
+            <.empty_state
+              msg="Extension unavailable."
+              hint="This page appears when the connected swarm publishes it in dashboard_pages."
+            />
+          </div>
       <% end %>
     </Layouts.app>
     """

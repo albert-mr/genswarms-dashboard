@@ -1,0 +1,4 @@
+## Large snapshot decodes leave unused memory segments in the default cache.
+## Return those segments to the OS instead of retaining them between refreshes.
+## SwarmFeed hibernation separately releases obsolete process heaps.
++MMmcs 0

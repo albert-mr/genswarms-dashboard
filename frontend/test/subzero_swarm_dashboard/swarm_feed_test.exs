@@ -170,6 +170,31 @@ defmodule SubzeroSwarmDashboard.SwarmFeedTest do
     assert {:disconnected, ^failed_revision, _} = SwarmFeed.view(%{})
   end
 
+  test "replacing a large snapshot releases the previous cached heap before the next poll" do
+    Application.put_env(:subzero_swarm_dashboard, :poll_interval_ms, 60_000)
+    on_exit(fn -> Application.delete_env(:subzero_swarm_dashboard, :poll_interval_ms) end)
+
+    large = %{"sessions" => Enum.map(1..20_000, &%{"session_id" => "synthetic:#{&1}:0"})}
+    small = %{"sessions" => [], "extensions" => %{}}
+    expect(SwarmClientMock, :dashboard, fn _ -> {:ok, large} end)
+    expect(SwarmClientMock, :dashboard, fn _ -> {:ok, small} end)
+    SwarmFeed.subscribe()
+    feed = start_supervised!(SwarmFeed)
+    assert_receive {:snapshot_ready, _}, 2_000
+    assert SwarmFeed.current(&length(&1["sessions"])) == 20_000
+    timer = :sys.get_state(feed).timer
+    {:memory, large_bytes} = Process.info(feed, :memory)
+
+    send(feed, {:timeout, timer, :poll})
+    assert_receive {:snapshot_ready, _}, 2_000
+    assert SwarmFeed.current() == small
+    # Calls reply before the GenServer hibernates; wait for that callback to finish.
+    assert :sys.get_state(feed).last_snapshot == small
+    {:memory, small_bytes} = Process.info(feed, :memory)
+
+    assert small_bytes < div(large_bytes, 10)
+  end
+
   describe "warn_silent?/5 (silent-empty guard)" do
     @snap %{"summary" => %{"agents" => 1}}
 

@@ -94,11 +94,13 @@ defmodule SubzeroSwarmDashboard.SwarmFeed do
 
   def handle_info({ref, result}, %{task: %Task{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
-    {:noreply, state |> finish_poll(result) |> schedule()}
+    # Compact the surviving snapshot and release previous response heaps before
+    # another refresh. Ordinary generational GC can retain several full rosters.
+    {:noreply, state |> finish_poll(result) |> schedule(), :hibernate}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %Task{ref: ref}} = state) do
-    {:noreply, state |> finish_poll({:error, {:poll_exit, reason}}) |> schedule()}
+    {:noreply, state |> finish_poll({:error, {:poll_exit, reason}}) |> schedule(), :hibernate}
   end
 
   # Observe live WS events (from the Socket) to feed the silent-empty guard.
@@ -113,11 +115,11 @@ defmodule SubzeroSwarmDashboard.SwarmFeed do
 
   @impl true
   def handle_call({:current, project}, _from, state),
-    do: {:reply, project.(state.last_snapshot), state}
+    do: {:reply, project.(state.last_snapshot), state, :hibernate}
 
   def handle_call({:view, assigns}, _from, state) do
     snapshot = SubzeroSwarmDashboardWeb.SnapshotView.project(state.last_snapshot, assigns)
-    {:reply, {state.status, state.revision, snapshot}, state}
+    {:reply, {state.status, state.revision, snapshot}, state, :hibernate}
   end
 
   @impl true
