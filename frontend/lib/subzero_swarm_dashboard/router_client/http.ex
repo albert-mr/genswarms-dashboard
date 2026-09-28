@@ -17,7 +17,9 @@ defmodule SubzeroSwarmDashboard.RouterClient.Http do
           params: params,
           headers: [{"authorization", "Bearer #{key}"}],
           receive_timeout: 8_000,
-          retry: false
+          retry: false,
+          # Cached pages must not retain discarded response fields through string references.
+          decode_json: [strings: :copy]
         ] ++
           Application.get_env(:subzero_swarm_dashboard, :req_options, [])
 

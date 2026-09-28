@@ -187,10 +187,14 @@ The desktop shell, table bodies and recent conversation history scroll independe
 Router reads run asynchronously, share a per-range freshness window, and do not retry
 inside a polling attempt. Failed requests remain visible while last-good values can
 seed a subsequent mount. Source timestamps are never advanced just by reading a cache.
+HTTP clients copy decoded JSON strings so retained rows do not pin discarded response
+buffers after pagination or cache refresh.
 
 Run `mix precommit` for regressions and `MIX_ENV=test mix run scripts/snapshot_scale.exs`
 for the synthetic 20,000-contact memory probe. The probe compares one held view plus
-12 queued updates, and never contacts a backend or accesses user data.
+12 queued updates, and never contacts a backend or accesses user data. It reports
+process memory and referenced binary buffers separately, including a comparison
+of projected rows with reference versus copy decoding. These are not pod RSS measurements.
 
 Limits: the upstream aggregate and each router response are still fetched/decoded in
 full once per polling cycle/window. The default feed eliminates viewer/mailbox
